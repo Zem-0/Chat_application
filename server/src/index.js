@@ -202,7 +202,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Server URL: http://localhost:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('CORS origins:', io.origins());
+  console.log('CORS configuration:', io._corsOrigins);
   console.log('Available endpoints:');
   console.log('- GET /');
   console.log('- GET /health');
