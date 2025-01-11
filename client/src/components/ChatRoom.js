@@ -9,6 +9,7 @@ function ChatRoom({ socket, username }) {
   const [showUserList, setShowUserList] = useState(false);
   const messagesEndRef = useRef(null);
   const [userStatuses, setUserStatuses] = useState([]);
+  const [messageError, setMessageError] = useState(null);
 
   useEffect(() => {
     socket.on('messageHistory', (history) => {
@@ -42,12 +43,18 @@ function ChatRoom({ socket, username }) {
       setUserStatuses(statuses);
     });
 
+    socket.on('messageError', (error) => {
+      setMessageError(error);
+      setTimeout(() => setMessageError(null), 3000);
+    });
+
     return () => {
       socket.off('messageHistory');
       socket.off('message');
       socket.off('userList');
       socket.off('userTyping');
       socket.off('userStatuses');
+      socket.off('messageError');
     };
   }, [socket]);
 
@@ -66,6 +73,40 @@ function ChatRoom({ socket, username }) {
   const handleTyping = (e) => {
     setNewMessage(e.target.value);
     socket.emit('typing', e.target.value.length > 0);
+  };
+
+  const groupMessagesByDate = (messages) => {
+    const groups = {};
+    messages.forEach(msg => {
+      const date = new Date(msg.time);
+      const dateKey = date.toDateString();
+      if (!groups[dateKey]) {
+        groups[dateKey] = [];
+      }
+      groups[dateKey].push(msg);
+    });
+    return groups;
+  };
+
+  const formatMessageTime = (time) => {
+    const date = new Date(time);
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      return date.toLocaleDateString([], { 
+        month: 'short', 
+        day: 'numeric' 
+      }) + ' ' + date.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      });
+    }
   };
 
   return (
@@ -97,17 +138,42 @@ function ChatRoom({ socket, username }) {
       </OnlineUsers>
 
       <ChatMain>
+        {messageError && (
+          <ErrorMessage>
+            {messageError}
+          </ErrorMessage>
+        )}
         <MessagesContainer>
-          {messages.map((msg, index) => (
-            <Message key={index} isOwn={msg.user === username}>
-              <MessageContent isOwn={msg.user === username}>
-                <Username isOwn={msg.user === username}>{msg.user}</Username>
-                <MessageText>{msg.text}</MessageText>
-                <TimeStamp isOwn={msg.user === username}>
-                  {new Date(msg.time).toLocaleTimeString()}
-                </TimeStamp>
-              </MessageContent>
-            </Message>
+          {Object.entries(groupMessagesByDate(messages)).map(([date, dateMessages]) => (
+            <MessageGroup key={date}>
+              <DateDivider>
+                <DateLabel>
+                  {date === new Date().toDateString() ? 'Today' : 
+                   date === new Date(Date.now() - 86400000).toDateString() ? 'Yesterday' : 
+                   new Date(date).toLocaleDateString([], { 
+                     weekday: 'long', 
+                     month: 'long', 
+                     day: 'numeric' 
+                   })}
+                </DateLabel>
+              </DateDivider>
+              {dateMessages.map((msg, index) => (
+                <MessageWrapper key={index}>
+                  {(!dateMessages[index - 1] || 
+                    dateMessages[index - 1].user !== msg.user) && (
+                    <Username isOwn={msg.user === username}>{msg.user}</Username>
+                  )}
+                  <Message isOwn={msg.user === username}>
+                    <MessageContent isOwn={msg.user === username}>
+                      <MessageText>{msg.text}</MessageText>
+                      <TimeStamp isOwn={msg.user === username}>
+                        {formatMessageTime(msg.time)}
+                      </TimeStamp>
+                    </MessageContent>
+                  </Message>
+                </MessageWrapper>
+              ))}
+            </MessageGroup>
           ))}
           <div ref={messagesEndRef} />
         </MessagesContainer>
@@ -326,54 +392,35 @@ const MessagesContainer = styled.div`
 `;
 
 const Message = styled.div`
-  margin: 0.3rem 0;
+  margin: 0.1rem 0;
   display: flex;
   justify-content: ${({ isOwn }) => isOwn ? 'flex-end' : 'flex-start'};
   padding: 0 1rem;
+  
+  &:first-of-type {
+    margin-top: 0.3rem;
+  }
 `;
 
 const MessageContent = styled.div`
-  padding: 1rem 1.2rem;
+  padding: 0.8rem 1rem;
   border-radius: 16px;
   max-width: 70%;
   background: ${({ isOwn }) => 
     isOwn ? 'linear-gradient(135deg, #4a90e2 0%, #357abd 100%)' : '#f8fafc'};
   color: ${({ isOwn }) => isOwn ? 'white' : '#2c3e50'};
   box-shadow: ${({ isOwn }) => 
-    isOwn ? '0 4px 12px rgba(74, 144, 226, 0.2)' : '0 4px 12px rgba(0, 0, 0, 0.05)'};
+    isOwn ? '0 2px 8px rgba(74, 144, 226, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.05)'};
   transition: all 0.2s ease;
-  position: relative;
   
   ${({ isOwn }) => isOwn ? `
     border-bottom-right-radius: 4px;
-    &::after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      right: -8px;
-      width: 16px;
-      height: 16px;
-      background: linear-gradient(135deg, #357abd 0%, #357abd 50%, transparent 50%, transparent 100%);
-      transform: rotate(45deg);
-    }
   ` : `
     border-bottom-left-radius: 4px;
-    &::after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      left: -8px;
-      width: 16px;
-      height: 16px;
-      background: linear-gradient(135deg, transparent 0%, transparent 50%, #f8fafc 50%, #f8fafc 100%);
-      transform: rotate(45deg);
-    }
   `}
 
   &:hover {
-    transform: translateY(-2px);
-    box-shadow: ${({ isOwn }) => 
-      isOwn ? '0 6px 16px rgba(74, 144, 226, 0.25)' : '0 6px 16px rgba(0, 0, 0, 0.08)'};
+    transform: translateY(-1px);
   }
 
   @media (max-width: 768px) {
@@ -384,8 +431,8 @@ const MessageContent = styled.div`
 const Username = styled.div`
   font-weight: 600;
   font-size: 0.85rem;
-  margin-bottom: 0.3rem;
-  color: ${({ isOwn }) => isOwn ? 'rgba(255, 255, 255, 0.9)' : '#666'};
+  margin: ${({ isOwn }) => isOwn ? '0 1rem 0 0' : '0 0 0 1rem'};
+  color: #666;
   text-align: ${({ isOwn }) => isOwn ? 'right' : 'left'};
 `;
 
@@ -527,6 +574,59 @@ const CloseButton = styled.button`
 
   @media (max-width: 768px) {
     display: block;
+  }
+`;
+
+const MessageGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+`;
+
+const DateDivider = styled.div`
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0;
+  
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const DateLabel = styled.span`
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 16px;
+  font-size: 0.8rem;
+  color: #666;
+  margin: 0 1rem;
+  white-space: nowrap;
+`;
+
+const MessageWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: ${({ isOwn }) => isOwn ? '0 0 0 auto' : '0 auto 0 0'};
+`;
+
+const ErrorMessage = styled.div`
+  background-color: #ff6b6b;
+  color: white;
+  padding: 0.8rem;
+  margin: 0.5rem 1rem;
+  border-radius: 8px;
+  text-align: center;
+  animation: slideIn 0.3s ease;
+
+  @keyframes slideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
 `;
 
